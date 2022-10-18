@@ -1,0 +1,8 @@
+build
+target
+.vscode
+.gradle
+out.yml
+bucket-name.txt
+bin
+.DS_Store

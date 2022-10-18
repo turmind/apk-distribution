@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: An AWS Lambda application that calls the Lambda API.
+Parameters:
+  s3BucketName:
+    Type: String
+    MinLength: '3'
+    MaxLength: '63'
+  appKey:
+    Type: String
+    Default: ''
+Resources:
+  apkDistributionVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: apk-distribution-vpc
+  apkDistributionRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        !Ref apkDistributionVPC
+      Tags:
+      - Key: Name
+        Value: apk-distribution-vpc-route-table
+  apkDistributionSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      VpcId: 
+        !Ref apkDistributionVPC
+      CidrBlock: 10.0.0.0/20
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+        - Key: Name
+          Value: apk-distribution-subnet-1
+  apkDistributionSubnet1RouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref apkDistributionSubnet1
+      RouteTableId:
+        !Ref apkDistributionRouteTable
+  apkDistributionSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      VpcId: 
+        !Ref apkDistributionVPC
+      CidrBlock: 10.0.32.0/20
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+        - Key: Name
+          Value: apk-distribution-subnet-2
+  apkDistributionSubnet2RouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref apkDistributionSubnet2
+      RouteTableId:
+        !Ref apkDistributionRouteTable
+  apkDistributionSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      VpcId: 
+        !Ref apkDistributionVPC
+      CidrBlock: 10.0.64.0/20
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+        - Key: Name
+          Value: apk-distribution-subnet-3
+  apkDistributionSubnet3RouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref apkDistributionSubnet3
+      RouteTableId:
+        !Ref apkDistributionRouteTable
+  s3APKTmpBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        - !Ref apkDistributionRouteTable
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref apkDistributionVPC
+      VpcEndpointType: Gateway
+  function:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: build/distributions/apk-distribution.zip
+      Handler: distribution.Handler::handleRequest
+      Runtime: java11
+      Description: Java function
+      Environment:
+        Variables:
+          BUCKET: !Ref s3BucketName
+          TMPBUCKET: !Ref s3APKTmpBucket
+          APPKEY: !Ref appKey
+      MemorySize: 2048
+      Timeout: 30
+      # Function's execution role
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSLambda_ReadOnlyAccess
+        - AWSLambdaVPCAccessExecutionRole
+        - AmazonS3FullAccess
+      Layers:
+        - !Ref libs
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt apkDistributionVPC.DefaultSecurityGroup
+        SubnetIds:
+          - !Ref apkDistributionSubnet1
+          - !Ref apkDistributionSubnet2
+          - !Ref apkDistributionSubnet3
+  libs:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: apk-distribution-lib
+      Description: Dependencies for the apk-distribution app.
+      ContentUri: build/apk-distribution-lib.zip
+      CompatibleRuntimes:
+        - java11
+  apkDistributionApiGateWay:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: apk-distribution Proxy
+      Description: Lambda proxy use for apk-distribution
+      ProtocolType: HTTP
+      Target: !GetAtt function.Arn
+  apiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt function.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn:
+        !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apkDistributionApiGateWay}/*'
+
+  CloudFrontOriginIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'origin identity'
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref s3APKTmpBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginIdentity}'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${s3APKTmpBucket}/*'
+  publicDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Sub '${s3APKTmpBucket}.s3.${AWS::Region}.amazonaws.com'
+            Id: tmp-apk-bucket-access
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginIdentity}'
+          - DomainName: !Sub '${apkDistributionApiGateWay}.execute-api.${AWS::Region}.amazonaws.com'
+            Id: apk-distribution-access
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+        Enabled: true
+        Comment: apk distribution
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+          TargetOriginId: apk-distribution-access
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: 775133bc-15f2-49f9-abea-afb2e0bf67d2
+          ViewerProtocolPolicy: redirect-to-https
+        CacheBehaviors:
+          - AllowedMethods:
+              - GET
+              - HEAD
+            TargetOriginId: tmp-apk-bucket-access
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            PathPattern: tmpapk/*.apk
+            ViewerProtocolPolicy: redirect-to-https
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+Outputs:
+  APIGatewayEndpoint:
+    Description: api gateway access url
+    Value: !GetAtt apkDistributionApiGateWay.ApiEndpoint
+  CDNDomain:
+    Description: cdn access url
+    Value: !GetAtt publicDistribution.DomainName

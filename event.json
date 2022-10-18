@@ -1,0 +1,36 @@
+{
+  "version": "2.0",
+  "routeKey": "$default",
+  "rawPath": "/ets.apk",
+  "rawQueryString": "",
+  "headers": {
+      "content-length": "0",
+      "host": "duq6bxm2b3.execute-api.us-east-1.amazonaws.com",
+      "user-agent": "curl/7.82.0",
+      "via": "1.1 3ea7dec9ae91ed3e4cc2a65d3613ed52.cloudfront.net (CloudFront)",
+      "x-amz-cf-id": "vTcF_W6zMUAksNh2jrGKQpewlUnZFY6Ox1KwkHA23CDW3SO07wbpGg==",
+      "x-amzn-trace-id": "Root=1-6342d49d-1b8235ee58097f486f34aa5d",
+      "x-forwarded-for": "13.248.48.11, 130.176.25.157",
+      "x-forwarded-port": "443",
+      "x-forwarded-proto": "https"
+  },
+  "isBase64Encoded": false,
+  "requestContext": {
+      "routeKey": "$default",
+      "accountId": "900212707297",
+      "stage": "$default",
+      "apiId": "duq6bxm2b3",
+      "domainName": "duq6bxm2b3.execute-api.us-east-1.amazonaws.com",
+      "domainPrefix": "duq6bxm2b3",
+      "time": "09/Oct/2022:14:03:09 +0000",
+      "timeEpoch": 1665324189023,
+      "http": {
+          "method": "HEAD",
+          "path": "/ets.apk",
+          "protocol": "HTTP/1.1",
+          "sourceIp": "13.248.48.11",
+          "userAgent": "curl/7.82.0"
+      },
+      "requestId": "ZvYokgbhoAMES2g="
+  }
+}
