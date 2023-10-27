@@ -1,27 +1,22 @@
 package distribution;
 
+import com.amazonaws.RequestClientOptions;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPResponse;
 
-
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 
 import com.meituan.android.walle.ChannelWriter;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
-import java.util.Map;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -29,106 +24,67 @@ import com.google.gson.GsonBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// Handler value: example.Handler
-public class Handler implements RequestHandler<APIGatewayV2HTTPEvent, APIGatewayV2HTTPResponse>{
-  private static final Logger logger = LoggerFactory.getLogger(Handler.class);
-  private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+public class Handler implements RequestHandler<APIGatewayV2HTTPEvent, APIGatewayV2HTTPResponse> {
   private static final String srcBucket = System.getenv("BUCKET");
   private static final String tmpBucket = System.getenv("TMPBUCKET");
-  private Map<String, String> extraInfo;
+  private static final String appKey = System.getenv("APPKEY");
+  private static final String region = System.getenv("REGION");
 
-  /*
-  public Handler(){
-    CompletableFuture<GetAccountSettingsResponse> accountSettings = lambdaClient.getAccountSettings(GetAccountSettingsRequest.builder().build());
-    try {
-      GetAccountSettingsResponse settings = accountSettings.get();
-    } catch(Exception e) {
-      e.getStackTrace();
-    }
-  }*/
+  private static final Logger logger = LoggerFactory.getLogger(Handler.class);
+  private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+  private static AmazonS3 s3Client = AmazonS3ClientBuilder.standard().withRegion(region).build();
+
+  private String apkKey;
+  private String channel;
+  private String sign;
 
   @Override
-  public APIGatewayV2HTTPResponse handleRequest(APIGatewayV2HTTPEvent event, Context context)
-  {
-    logger.info("ENVIRONMENT VARIABLES: {}", gson.toJson(System.getenv()));
-    logger.info("CONTEXT: {}", gson.toJson(context));
-    logger.info("EVENT: {}", gson.toJson(event));
+  public APIGatewayV2HTTPResponse handleRequest(APIGatewayV2HTTPEvent event, Context context) {
+    logger.debug("ENVIRONMENT VARIABLES: {}", gson.toJson(System.getenv()));
+    logger.debug("CONTEXT: {}", gson.toJson(context));
+    logger.debug("EVENT: {}", gson.toJson(event));
 
-    APIGatewayV2HTTPResponse response = new APIGatewayV2HTTPResponse();
+    this.setRequestKeys(event);
 
-    String srcKey = event.getRawPath().substring(1);
-    int apkIndex = srcKey.lastIndexOf(".apk");
-    if(apkIndex == -1){
-      response.setStatusCode(500);
-        response.setBody("access uri should end with .apk");
-        return response;
+    int apkIndex = apkKey.lastIndexOf(".apk");
+    if (apkKey.length() == 0 || apkIndex == -1) {
+      return Util.HttpResponse(200, "key should end with .apk");
     }
 
-    String channel = "aws";
+    if (appKey.length() > 0 && !Util.SignValid(apkKey, channel, appKey, sign)) {
+      return Util.HttpResponse(200, "sign is invalid");
+    }
+
+    String tmpApkKey = Util.TmpKey(apkKey, apkIndex, channel);
+    logger.debug("tmp apk key is: {}", tmpApkKey);
     try {
-      channel = event.getQueryStringParameters().get("channel");
-    } catch (Exception e) {
-      channel = "aws";
-    }
-    AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
-
-    try{
-      // check s3 bucket exist
-      if (!s3Client.doesBucketExistV2(srcBucket) && !s3Client.doesBucketExistV2(tmpBucket)) {
-        logger.info("bucket not exist");
-        response.setStatusCode(500);
-        response.setBody("s3 bucket or tmpbucket does not exist");
-        return response;
-      }
-
       // tmp apk already exist
-      String tmpApkKey = "tmpapk/" + srcKey.substring(0, apkIndex) + "-" + channel + ".apk";
       if (s3Client.doesObjectExist(tmpBucket, tmpApkKey)) {
-        logger.info("tmp apk exist: {}", tmpApkKey);
-        Map<String, String> headers = new HashMap<>();
-        headers.put("Location", "/" + tmpApkKey);
-        response.setStatusCode(302);
-        response.setHeaders(headers);
-        return response;
+        logger.debug("tmp apk exist: {}", tmpApkKey);
+        return Util.HttpResponseWithRedirectURI(302, "", "/" + tmpApkKey);
       }
 
-      // apk does not exist
-      if (!s3Client.doesObjectExist(srcBucket, srcKey)) {
-        logger.info("src apk exist: {}", srcKey);
-        Map<String, String> headers = new HashMap<>();
-        response.setStatusCode(404);
-        response.setHeaders(headers);
-        return response;
+      // source apk does not exist
+      if (!s3Client.doesObjectExist(srcBucket, apkKey)) {
+        logger.warn("source apk does not exist: {}", apkKey);
+        return Util.HttpResponse(404, "");
       }
 
-      //download object
-      S3Object s3Object = s3Client.getObject(new GetObjectRequest(srcBucket, srcKey));
-      if (s3Object == null) {
-        response.setStatusCode(404);
-        return response;
-      }
-      InputStream objectData = s3Object.getObjectContent();
-      Files.copy(objectData, Paths.get("/tmp/tmp.apk"), StandardCopyOption.REPLACE_EXISTING);
+      File apkFile = new File("/tmp/tmp.apk");
+      s3Client.getObject(new GetObjectRequest(srcBucket, apkKey), apkFile);
+      ChannelWriter.put(apkFile, channel); // sign apk
+      s3Client.putObject(tmpBucket, tmpApkKey, apkFile);
 
-      //sign apk
-      ChannelWriter.put(new File("/tmp/tmp.apk"), channel, extraInfo);
-
-      //upload to s3
-      File initialFile = new File("/tmp/tmp.apk");
-      InputStream targetStream = new FileInputStream(initialFile);
-      s3Client.putObject(tmpBucket, tmpApkKey, targetStream, new ObjectMetadata());
-
-      //redirect
-      Map<String, String> headers = new HashMap<>();
-      headers.put("Location", "/" + tmpApkKey);
-      response.setStatusCode(302);
-      response.setHeaders(headers);
-      return response;
-    }catch(Exception e){
-      logger.info( "Exception: {}", e.toString());
-      response.setStatusCode(500);
-      response.setBody("internal error" + e.toString() + "key: " + srcKey);
-      return response;
+      return Util.HttpResponseWithRedirectURI(302, "", "/" + tmpApkKey);// redirect
+    } catch (Exception e) {
+      logger.error("Exception: {}", e.toString());
+      return Util.HttpResponse(500, "internal error. " + "key: " + apkKey);
     }
+  }
+
+  private void setRequestKeys(APIGatewayV2HTTPEvent event) {
+    this.apkKey = Util.GetEventKeyValue(event, "key");
+    this.channel = Util.GetEventKeyValue(event, "channel");
+    this.sign = Util.GetEventKeyValue(event, "sign");
   }
 }

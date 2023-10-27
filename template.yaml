@@ -1,16 +1,32 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: 'AWS::Serverless-2016-10-31'
-Description: An AWS Lambda application that calls the Lambda API.
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  APK distribution allows developers to add download channel information to their Android app installation packages (APKs). This channel data can then be used for attribution and analytics purposes. 
 Parameters:
-  s3BucketName:
+  S3BucketName:
     Type: String
     MinLength: '3'
     MaxLength: '63'
-  appKey:
+  APPKey:
     Type: String
     Default: ''
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: apk-distribution
+    Description: >
+      apk-distribution
+      
+      APK distribution allows developers to add download channel information to their Android app installation packages (APKs). This channel data can then be used for attribution and analytics purposes.
+    Author: Huang Jidong
+    SpdxLicenseId: MIT-0
+    LicenseUrl: LICENSE
+    ReadmeUrl: README.md
+    Labels: ['s3', 'cloudfront', 'lambda', 'distribution', 'apk']
+    HomePageUrl: https://github.com/turmind/apk-distribution
+    SemanticVersion: 1.0.1
+    SourceCodeUrl: https://github.com/turmind/apk-distribution
 Resources:
-  apkDistributionVPC:
+  APKDistributionVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
@@ -22,68 +38,61 @@ Resources:
   apkDistributionRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId:  
-        !Ref apkDistributionVPC
+      VpcId: !Ref APKDistributionVPC
       Tags:
-      - Key: Name
-        Value: apk-distribution-vpc-route-table
+        - Key: Name
+          Value: apk-distribution-vpc-route-table
   apkDistributionSubnet1:
     Type: AWS::EC2::Subnet
-    Properties: 
-      VpcId: 
-        !Ref apkDistributionVPC
+    Properties:
+      VpcId: !Ref APKDistributionVPC
       CidrBlock: 10.0.0.0/20
       AvailabilityZone: !Select
         - 0
-        - Fn::GetAZs: !Ref AWS::Region
+        - !GetAZs
+          Ref: AWS::Region
       Tags:
         - Key: Name
           Value: apk-distribution-subnet-1
   apkDistributionSubnet1RouteTable:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId:
-        !Ref apkDistributionSubnet1
-      RouteTableId:
-        !Ref apkDistributionRouteTable
+      SubnetId: !Ref apkDistributionSubnet1
+      RouteTableId: !Ref apkDistributionRouteTable
   apkDistributionSubnet2:
     Type: AWS::EC2::Subnet
-    Properties: 
-      VpcId: 
-        !Ref apkDistributionVPC
+    Properties:
+      VpcId: !Ref APKDistributionVPC
       CidrBlock: 10.0.32.0/20
       AvailabilityZone: !Select
         - 1
-        - Fn::GetAZs: !Ref AWS::Region
+        - !GetAZs
+          Ref: AWS::Region
       Tags:
         - Key: Name
           Value: apk-distribution-subnet-2
   apkDistributionSubnet2RouteTable:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId:
-        !Ref apkDistributionSubnet2
-      RouteTableId:
-        !Ref apkDistributionRouteTable
+      SubnetId: !Ref apkDistributionSubnet2
+      RouteTableId: !Ref apkDistributionRouteTable
   apkDistributionSubnet3:
     Type: AWS::EC2::Subnet
-    Properties: 
-      VpcId: 
-        !Ref apkDistributionVPC
+    Properties:
+      VpcId: !Ref APKDistributionVPC
       CidrBlock: 10.0.64.0/20
       AvailabilityZone: !Select
         - 2
-        - Fn::GetAZs: !Ref AWS::Region
+        - !GetAZs
+          Ref: AWS::Region
       Tags:
         - Key: Name
           Value: apk-distribution-subnet-3
   apkDistributionSubnet3RouteTable:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId:
-        !Ref apkDistributionSubnet3
-      RouteTableId:
-        !Ref apkDistributionRouteTable
+      SubnetId: !Ref apkDistributionSubnet3
+      RouteTableId: !Ref apkDistributionRouteTable
   s3APKTmpBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -94,7 +103,7 @@ Resources:
       RouteTableIds:
         - !Ref apkDistributionRouteTable
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
-      VpcId: !Ref apkDistributionVPC
+      VpcId: !Ref APKDistributionVPC
       VpcEndpointType: Gateway
   function:
     Type: AWS::Serverless::Function
@@ -105,12 +114,12 @@ Resources:
       Description: Java function
       Environment:
         Variables:
-          BUCKET: !Ref s3BucketName
+          BUCKET: !Ref S3BucketName
           TMPBUCKET: !Ref s3APKTmpBucket
-          APPKEY: !Ref appKey
+          APPKEY: !Ref APPKey
+          REGION: !Ref AWS::Region
       MemorySize: 2048
       Timeout: 30
-      # Function's execution role
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSLambda_ReadOnlyAccess
@@ -120,7 +129,7 @@ Resources:
         - !Ref libs
       VpcConfig:
         SecurityGroupIds:
-          - !GetAtt apkDistributionVPC.DefaultSecurityGroup
+          - !GetAtt APKDistributionVPC.DefaultSecurityGroup
         SubnetIds:
           - !Ref apkDistributionSubnet1
           - !Ref apkDistributionSubnet2
@@ -146,15 +155,13 @@ Resources:
       FunctionName: !GetAtt function.Arn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceAccount: !Ref 'AWS::AccountId'
-      SourceArn:
-        !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apkDistributionApiGateWay}/*'
-
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apkDistributionApiGateWay}/*
   CloudFrontOriginIdentity:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties:
       CloudFrontOriginAccessIdentityConfig:
-        Comment: 'origin identity'
+        Comment: origin identity
   BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -164,19 +171,19 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginIdentity}'
-            Action: 's3:GetObject'
-            Resource: !Sub 'arn:aws:s3:::${s3APKTmpBucket}/*'
+              AWS: !Sub arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginIdentity}
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${s3APKTmpBucket}/*
   publicDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Origins:
-          - DomainName: !Sub '${s3APKTmpBucket}.s3.${AWS::Region}.amazonaws.com'
+          - DomainName: !Sub ${s3APKTmpBucket}.s3.${AWS::Region}.amazonaws.com
             Id: tmp-apk-bucket-access
             S3OriginConfig:
-              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginIdentity}'
-          - DomainName: !Sub '${apkDistributionApiGateWay}.execute-api.${AWS::Region}.amazonaws.com'
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOriginIdentity}
+          - DomainName: !Sub ${apkDistributionApiGateWay}.execute-api.${AWS::Region}.amazonaws.com
             Id: apk-distribution-access
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
@@ -186,24 +193,21 @@ Resources:
           AllowedMethods:
             - GET
             - HEAD
-          TargetOriginId: apk-distribution-access
-          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-          OriginRequestPolicyId: 775133bc-15f2-49f9-abea-afb2e0bf67d2
+          TargetOriginId: tmp-apk-bucket-access
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           ViewerProtocolPolicy: redirect-to-https
         CacheBehaviors:
           - AllowedMethods:
               - GET
               - HEAD
-            TargetOriginId: tmp-apk-bucket-access
-            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-            PathPattern: tmpapk/*.apk
+            TargetOriginId: apk-distribution-access
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 775133bc-15f2-49f9-abea-afb2e0bf67d2
             ViewerProtocolPolicy: redirect-to-https
+            PathPattern: /
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
 Outputs:
-  APIGatewayEndpoint:
-    Description: api gateway access url
-    Value: !GetAtt apkDistributionApiGateWay.ApiEndpoint
   CDNDomain:
     Description: cdn access url
     Value: !GetAtt publicDistribution.DomainName

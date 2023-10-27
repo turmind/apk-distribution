@@ -6,3 +6,11 @@ out.yml
 bucket-name.txt
 bin
 .DS_Store
+bak
+samconfig.toml
+.aws-sam
+.aws-composer
+event.json
+out.json
+packaged.yaml
+tmp.txt
