@@ -23,88 +23,13 @@ Metadata:
     ReadmeUrl: README.md
     Labels: ['s3', 'cloudfront', 'lambda', 'distribution', 'apk']
     HomePageUrl: https://github.com/turmind/apk-distribution
-    SemanticVersion: 1.0.1
+    SemanticVersion: 1.1.1
     SourceCodeUrl: https://github.com/turmind/apk-distribution
 Resources:
-  APKDistributionVPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: apk-distribution-vpc
-  apkDistributionRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref APKDistributionVPC
-      Tags:
-        - Key: Name
-          Value: apk-distribution-vpc-route-table
-  apkDistributionSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref APKDistributionVPC
-      CidrBlock: 10.0.0.0/20
-      AvailabilityZone: !Select
-        - 0
-        - !GetAZs
-          Ref: AWS::Region
-      Tags:
-        - Key: Name
-          Value: apk-distribution-subnet-1
-  apkDistributionSubnet1RouteTable:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref apkDistributionSubnet1
-      RouteTableId: !Ref apkDistributionRouteTable
-  apkDistributionSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref APKDistributionVPC
-      CidrBlock: 10.0.32.0/20
-      AvailabilityZone: !Select
-        - 1
-        - !GetAZs
-          Ref: AWS::Region
-      Tags:
-        - Key: Name
-          Value: apk-distribution-subnet-2
-  apkDistributionSubnet2RouteTable:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref apkDistributionSubnet2
-      RouteTableId: !Ref apkDistributionRouteTable
-  apkDistributionSubnet3:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref APKDistributionVPC
-      CidrBlock: 10.0.64.0/20
-      AvailabilityZone: !Select
-        - 2
-        - !GetAZs
-          Ref: AWS::Region
-      Tags:
-        - Key: Name
-          Value: apk-distribution-subnet-3
-  apkDistributionSubnet3RouteTable:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref apkDistributionSubnet3
-      RouteTableId: !Ref apkDistributionRouteTable
   s3APKTmpBucket:
     Type: AWS::S3::Bucket
     Properties:
       AccessControl: Private
-  S3GatewayEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      RouteTableIds:
-        - !Ref apkDistributionRouteTable
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
-      VpcId: !Ref APKDistributionVPC
-      VpcEndpointType: Gateway
   function:
     Type: AWS::Serverless::Function
     Properties:
@@ -127,13 +52,6 @@ Resources:
         - AmazonS3FullAccess
       Layers:
         - !Ref libs
-      VpcConfig:
-        SecurityGroupIds:
-          - !GetAtt APKDistributionVPC.DefaultSecurityGroup
-        SubnetIds:
-          - !Ref apkDistributionSubnet1
-          - !Ref apkDistributionSubnet2
-          - !Ref apkDistributionSubnet3
   libs:
     Type: AWS::Serverless::LayerVersion
     Properties:
@@ -163,6 +81,7 @@ Resources:
       CloudFrontOriginAccessIdentityConfig:
         Comment: origin identity
   BucketPolicy:
+    DependsOn: CloudFrontOriginIdentity
     Type: AWS::S3::BucketPolicy
     Properties:
       Bucket: !Ref s3APKTmpBucket
