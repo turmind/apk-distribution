@@ -25,7 +25,7 @@ Metadata:
     ReadmeUrl: README.md
     Labels: ['s3', 'cloudfront', 'lambda', 'distribution', 'apk']
     HomePageUrl: https://github.com/turmind/apk-distribution
-    SemanticVersion: 1.1.1
+    SemanticVersion: 1.1.2
     SourceCodeUrl: https://github.com/turmind/apk-distribution
 Resources:
   s3APKTmpBucket:
