@@ -1,68 +1,73 @@
-# APK Distribution (Java)
+# APK Distribution
 
-![Architecture](./images/apk-distribution.drawio.png)
+apk-distribution APK distribution allows developers to add download channel information to their Android app installation packages (APKs). This channel data can then be used for attribution and analytics purposes.
 
-The project source includes function code and supporting resources:
+![Architecture](./images/distribution-apk.drawio.png)
 
-- `src/main` - A Java function.
-- `src/test` - A unit test and helper classes.
-- `template.yml` - An AWS CloudFormation template that creates an application.
-- `build.gradle` - A Gradle build file.
-- `1-create-bucket.sh`, `2-build-layer.sh`, etc. - Shell scripts that use the AWS CLI to deploy and manage the application.
+The Android client can access the URL with key and channel parameters to download the APK package with channel signature. The specific process is as follows:
 
-Use the following instructions to deploy the sample application.
+1. CloudFront forwards the request to Amazon API Gateway. API Gateway calls the Lambda dynamic packaging function.  
+2. Lambda first checks if the corresponding content already exists in the Amazon Simple Storage Service (S3) that temporarily stores the packaged APK. If it exists, it directly returns the corresponding download link address.
+3. If the corresponding APK package does not exist, it finds the dynamic packaging mother package from the location where the original APK package is stored, processes it using the channel parameter in the URL, uploads it to the S3 that stores the packaged APK, and returns the corresponding download link address.
+4. The Android client obtains the APK package with channel identification.
 
-## Requirements
+## API Definition
 
-- [Java 8 runtime environment (SE JRE)](https://www.oracle.com/java/technologies/javase-downloads.html)
-- [Gradle 5](https://gradle.org/releases/) or [Maven 3](https://maven.apache.org/docs/history.html)
-- The Bash shell. For Linux and macOS, this is included by default. In Windows 10, you can install the [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install-win10) to get a Windows-integrated version of Ubuntu and Bash.
-- [The AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html) v1.17 or newer.
+### dynamic packaging
 
-If you use the AWS CLI v2, add the following to your [configuration file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html) (`~/.aws/config`):
+#### Request
+
+Method: GET
+
+| Parameter | Required | Description |
+| - | -| -|
+|key|Yes |Key of the APK that needs to be dynamically packaged in the S3 bucket|
+|channel|No|The name of the channel, if not provided, download the original APK directly|
+|sign|No|Must be provided if the template parameter APPkey is not empty, the signature is md5(key+channel+APPkey)|
+
+For example:
+CloudFront domain name is d1234567890r.cloudfront.net, CName is cloudfront.example.com.
 
 ```linux
-cli_binary_format=raw-in-base64-out
+# Template parameter APPkey is empty
+curl -I 'https://cloudfront.example.com/?key=ets.apk&channel=aws'
+
+# Template parameter APPkey is not empty
+curl -I 'https://cloudfront.example.com/?key=aws.apk&channel=aws&sign=e10adc3949ba59abbe56e057f20f883'
+````
+
+#### Response
+
+HTTP 302 and corresponding redirect URL
+
+For example：
+
+```HTTP
+HTTP/1.1 302 Found
+Content-Length: 0
+Connection: keep-alive
+Date: Tue, 08 Nov 2022 16:41:05 GMT
+location: /aws_aws.apk
+Apigw-Requestid: bSn4whXZSQ0EJqg=
+X-Cache: Miss from cloudfront
 ```
 
-This setting enables the AWS CLI v2 to load JSON events from a file, matching the v1 behavior.
+## Deploy Guide
 
-## Setup
+Click the link [apk-distribution](https://console.aws.amazon.com/lambda/home#/create/app?applicationId=arn:aws:serverlessrepo:us-west-2:699461715380:applications/apk-distribution) to open the application page in the AWS Serverless Application Repository. Enter the name of the S3 bucket that stores the download packages, check the box to confirm that the application will create the corresponding resource policies, and click the Deploy button to install.
+![apk-distribution sar](images/apk-distribution%20sar.png)
+**Note:** The S3 bucket for storing the APK packages must already be created. The APPkey needs to be filled in if signing and validating access links.
 
-Download or clone this repository.
+After the installation is complete, you can select the corresponding stack in the CloudFormation console page, and check Outputs to see the corresponding CloudFront domain name.
+![CloudFormation Stack Outputs](images/CloudFormation%20Stack%20Outputs.png)
 
-```linux
-git clone https://github.com/turmind/apk-distribution.git
-```
+In the browser, enter https://\<your-cloudfront-domain\>?key=test.apk&channel=aws to test the download.
+**Note:** Replace \<your-cloudfront-domain\> with the CloudFront domain name you see, and the test.apk file needs to exist in the S3 bucket.
 
-To create a new bucket for deployment artifacts, run `1-create-bucket.sh`.
-
-```linux
-./1-create-bucket.sh
-```
-
-To build a Lambda layer that contains the function's runtime dependencies, run `2-build-layer.sh`. Packaging dependencies in a layer reduces the size of the deployment package that you upload when you modify your code.
+Run the following command to view the channel information in the APK package. Download walle-cli-all.jar from this [link](https://github.com/Meituan-Dianping/walle/releases/):
 
 ```linux
-./2-build-layer.sh
-```
-
-## Deploy
-
-To deploy the application, run `3-deploy.sh`.
-
-```linux
-./3-deploy.sh
-```
-
-This script uses AWS CloudFormation to deploy the Lambda functions and an IAM role. If the AWS CloudFormation stack that contains the resources already exists, the script updates it with any changes to the template or function code.
-
-## Cleanup
-
-To delete the application, run `5-cleanup.sh`.
-
-```linux
-./5-cleanup.sh
+java -jar walle-cli-all.jar show test_aws.apk
 ```
 
 ## Referer

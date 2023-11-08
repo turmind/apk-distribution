@@ -4,10 +4,12 @@ Description: >
   APK distribution allows developers to add download channel information to their Android app installation packages (APKs). This channel data can then be used for attribution and analytics purposes. 
 Parameters:
   S3BucketName:
+    Description: The name of the S3 bucket use to store APKs.
     Type: String
     MinLength: '3'
     MaxLength: '63'
   APPKey:
+    Description: The app key use to verify the sign.
     Type: String
     Default: ''
 Metadata:
